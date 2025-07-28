@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import plotly.express as px
 
 st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
 
@@ -32,9 +33,10 @@ if uploaded_file:
 
     # 날짜형식 문자열 자동 인식 및 변환
     is_timestamp_col = (
-        x_col.lower() == 'timestamp' or
+        x_col.strip().lower() == 'timestamp' or
         (x_dtype == object and x_data.str.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?").all())
     )
+    
     if is_timestamp_col:
         x_data = pd.to_datetime(x_data)
         x_dtype = x_data.dtype
@@ -73,19 +75,16 @@ if uploaded_file:
         if st.button("그래프 그리기"):
             with st.spinner("그래프를 생성하고 있습니다..."):
                 st.subheader(f"{chart_type} 차트")
-                fig, ax = plt.subplots(figsize=(6, 3))
-                if chart_type == "Bar":
-                    for y_col in y_cols:
-                        ax.bar(filtered_df[x_col], filtered_df[y_col], label=y_col)
-                elif chart_type == "Line":
-                    for y_col in y_cols:
-                        ax.plot(filtered_df[x_col], filtered_df[y_col], label=y_col)
+
+                # Plotly 차트 통합
+                if chart_type == "Line":
+                    fig = px.line(filtered_df, x=x_col, y=y_cols, title="라인 차트")
                 elif chart_type == "Scatter":
-                    for y_col in y_cols:
-                        ax.scatter(filtered_df[x_col], filtered_df[y_col], label=y_col)
-                if y_cols:
-                    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-                st.pyplot(fig)
+                    fig = px.scatter(filtered_df, x=x_col, y=y_cols, title="산점도")
+                elif chart_type == "Bar":
+                    fig = px.bar(filtered_df, x=x_col, y=y_cols, title="막대 차트")
+
+                st.plotly_chart(fig, use_container_width=True, key="main_plot")
 
     if show_table:
         st.subheader("전체 데이터")

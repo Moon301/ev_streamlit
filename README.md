@@ -41,7 +41,7 @@
 docker build -t ev_streamlit .
 
 # 컨테이너 실행
-docker run -p 8509:8509 ev_streamlit
+docker run -d -p 8509:8509 --name ev_streamlit_app ev_streamlit
 ```
 
 ### 로컬에서 실행하기
