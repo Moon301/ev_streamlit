@@ -7,7 +7,7 @@ st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
 # 사이드바
 st.sidebar.title("옵션")
 uploaded_file = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"])
-chart_type = st.sidebar.selectbox("차트 타입 선택", ["Bar", "Line", "Scatter"])
+chart_type = st.sidebar.selectbox("차트 타입 선택", [ "Line", "Scatter","Bar"])
 show_table = st.sidebar.checkbox("데이터 테이블 보기")
 
 # 메인 화면
@@ -66,20 +66,21 @@ if uploaded_file:
         st.subheader("미리보기 데이터")
         st.dataframe(filtered_df[[x_col] + y_cols])
         if st.button("그래프 그리기"):
-            st.subheader(f"{chart_type} 차트")
-            fig, ax = plt.subplots()
-            if chart_type == "Bar":
-                for y_col in y_cols:
-                    ax.bar(filtered_df[x_col], filtered_df[y_col], label=y_col)
-            elif chart_type == "Line":
-                for y_col in y_cols:
-                    ax.plot(filtered_df[x_col], filtered_df[y_col], label=y_col)
-            elif chart_type == "Scatter":
-                for y_col in y_cols:
-                    ax.scatter(filtered_df[x_col], filtered_df[y_col], label=y_col)
-            if y_cols:
-                ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-            st.pyplot(fig)
+            with st.spinner("그래프를 생성하고 있습니다..."):
+                st.subheader(f"{chart_type} 차트")
+                fig, ax = plt.subplots(figsize=(6, 3))
+                if chart_type == "Bar":
+                    for y_col in y_cols:
+                        ax.bar(filtered_df[x_col], filtered_df[y_col], label=y_col)
+                elif chart_type == "Line":
+                    for y_col in y_cols:
+                        ax.plot(filtered_df[x_col], filtered_df[y_col], label=y_col)
+                elif chart_type == "Scatter":
+                    for y_col in y_cols:
+                        ax.scatter(filtered_df[x_col], filtered_df[y_col], label=y_col)
+                if y_cols:
+                    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+                st.pyplot(fig)
 
     if show_table:
         st.subheader("전체 데이터")
