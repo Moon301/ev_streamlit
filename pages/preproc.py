@@ -32,8 +32,9 @@ with st.sidebar:
         
     st.title("⚙️ 설정")   
     uploaded_files = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"],accept_multiple_files=True)
+    use_sample_data = st.sidebar.checkbox("샘플 데이터 사용")
     
-    preview_button = st.button("미리보기")
+    preview_button = st.button("결측치 확인하기")
 
 st.title("배터와이 데이터 전처리")
 
@@ -95,51 +96,70 @@ def custom_preprocessing(df, rules):
             df[col] = numeric_series  # 원본에 덮어쓰기
     return df
 
-if uploaded_files is not None and preview_button:
-    csv_files = uploaded_files
+if use_sample_data:
+    df = pd.read_csv("/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
+    st.success("✅ 샘플 데이터를 사용하고 있습니다.")
+
+if preview_button and (uploaded_files or use_sample_data):
     stats = []
+
     with st.spinner("규칙 위반 row 집계 중..."):
-        for f in csv_files:
-            df = pd.read_csv(f)
+        if use_sample_data:
+            sample_path = "/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
+            df = pd.read_csv(sample_path)
             violations = get_violation_counts_custom(df, st.session_state['rules'])
-            violations['file'] = f.name +"_preproc"
+            violations['file'] = "샘플_데이터"
             stats.append(violations)
+
+        elif uploaded_files:
+            for f in uploaded_files:
+                df = pd.read_csv(f)
+                violations = get_violation_counts_custom(df, st.session_state['rules'])
+                violations['file'] = f.name + "_preproc"
+                stats.append(violations)
+
     st.write("파일별 전처리 규칙 위반 row 수")
-    st.dataframe(pd.DataFrame(stats).fillna(0))
+    st.dataframe(pd.DataFrame(stats).fillna(0), use_container_width=True)
 
 # 전처리만 먼저 수행
 if st.button("전처리 시작") :
-    csv_files = uploaded_files
     st.session_state['processed_files'] = {}  # 기존 결과 초기화
-    progress = st.progress(0)
+    files_to_process = []
+    
+    
+    if use_sample_data:
+        sample_path = "/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
+        sample_df = pd.read_csv(sample_path)
+        df_proc = custom_preprocessing(sample_df, st.session_state['rules'])
+        st.session_state['processed_files']['샘플_데이터'] = df_proc
+        st.success("✅ 샘플 데이터 전처리 완료!")
+    elif uploaded_files:
+        csv_files = uploaded_files
+        progress = st.progress(0)
+        for i, f in enumerate(csv_files):
+            df = pd.read_csv(f)
+            df_proc = custom_preprocessing(df, st.session_state['rules'])
+            st.session_state['processed_files'][f.name] = df_proc
+            progress.progress((i + 1) / len(csv_files))
+        st.success("✅ 업로드된 파일 전처리 완료!")
 
-    for i, f in enumerate(csv_files):
-        df = pd.read_csv(f)
-        df_proc = custom_preprocessing(df, st.session_state['rules'])
-
-        # 결과 저장: dict에 파일명과 전처리 DataFrame 보관
-        st.session_state['processed_files'][f.name] = df_proc
-
-        progress.progress((i + 1) / len(csv_files))
-
-    st.success("✅ 전처리 완료! '파일 다운로드' 버튼을 눌러 저장할 수 있습니다.")
+    else:
+        st.warning("⚠️ CSV를 업로드하거나 샘플 데이터를 선택하세요.")
 
 # 파일 다운로드
 if st.button("파일 다운로드"):
-        
     if not st.session_state.get('processed_files'):
         st.warning("⚠️ 먼저 '전처리 시작'을 클릭하세요.")
     else:
         for filename, df_proc in st.session_state['processed_files'].items():
             buffer = io.StringIO()
             df_proc.to_csv(buffer, index=False)
-            csv_str = buffer.getvalue()  # 문자열로 변환
+            csv_str = buffer.getvalue()
 
             st.download_button(
                 label=f"📥 {filename} 전처리 결과 다운로드",
-                data=csv_str,  # 문자열 전달
+                data=csv_str,
                 file_name=f"{os.path.splitext(filename)[0]}_preproc.csv",
                 mime="text/csv"
             )
-
         st.success("💾 다운로드 준비 완료!")

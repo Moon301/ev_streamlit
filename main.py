@@ -13,6 +13,7 @@ with st.sidebar:
     st.title("⚙️ 설정")   
 
     uploaded_file = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"])
+    use_sample_data = st.sidebar.checkbox("샘플 데이터 사용")
     chart_type = st.sidebar.selectbox("차트 타입 선택", [ "Line", "Scatter","Bar"])
     show_table = st.sidebar.checkbox("전체 데이터 테이블 보기")
 
@@ -20,8 +21,12 @@ with st.sidebar:
 st.title("📊 데이터 시각화 대시보드")
 st.write("업로드한 데이터를 다양한 차트로 시각화할 수 있습니다.")
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+if uploaded_file or use_sample_data:
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_csv("/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
+        st.success("✅ 샘플 데이터를 사용하고 있습니다.")
     st.subheader("데이터 미리보기")
     st.dataframe(df.head())
 
@@ -71,7 +76,7 @@ if uploaded_file:
     # 미리보기가 된 상태에서만 그래프 그리기 버튼 생성
     if st.session_state['preview'] and y_cols:
         st.subheader("미리보기 데이터")
-        st.dataframe(filtered_df[[x_col] + y_cols])
+        st.dataframe(filtered_df[[x_col] + y_cols],  use_container_width=True)
         if st.button("그래프 그리기"):
             with st.spinner("그래프를 생성하고 있습니다..."):
                 st.subheader(f"{chart_type} 차트")
@@ -88,6 +93,6 @@ if uploaded_file:
 
     if show_table:
         st.subheader("전체 데이터")
-        st.dataframe(df)
+        st.dataframe(df, use_container_width=True)
 else:
     st.info("좌측 사이드바에서 CSV 파일을 업로드하세요.")

@@ -9,6 +9,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 애플리케이션 파일 복사
 COPY . .
 
+RUN mkdir -p /root/.streamlit
+COPY .streamlit/config.toml /root/.streamlit/config.toml
+
 # 포트 8509 노출
 EXPOSE 8509
 
