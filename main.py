@@ -25,7 +25,7 @@ if uploaded_file or use_sample_data:
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
     else:
-        df = pd.read_csv("/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
+        df = pd.read_csv("sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
         st.success("✅ 샘플 데이터를 사용하고 있습니다.")
     st.subheader("데이터 미리보기")
     st.dataframe(df.head())

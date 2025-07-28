@@ -34,7 +34,7 @@ with st.sidebar:
     uploaded_files = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"],accept_multiple_files=True)
     use_sample_data = st.sidebar.checkbox("샘플 데이터 사용")
     
-    preview_button = st.button("결측치 확인하기")
+    
 
 st.title("배터와이 데이터 전처리")
 
@@ -52,7 +52,9 @@ for i, rule in enumerate(st.session_state['rules']):
         if st.button(f"규칙 삭제", key=f"del_{i}"):
             st.session_state['rules'].pop(i)
             st.rerun()
+preview_button = st.button("결측치 확인하기")
 
+st.divider()
 st.subheader("전처리 규칙 관리")
 with st.form("add_rule_form", clear_on_submit=True):
     col_pattern = st.text_input("컬럼명에 포함되는 문자열 (예: soc, pack_v, temperature 등)")
@@ -78,7 +80,7 @@ def get_violation_counts_custom(df, rules):
         for col in [c for c in df.columns if pattern in c]:
             col_series = pd.to_numeric(df[col], errors='coerce')  # 문자열 등은 NaN으로 처리
             violation_mask = (col_series.notna()) & ((col_series < min_v) | (col_series > max_v))
-            result[f"{col} ({min_v}~{max_v} 위반)"] = violation_mask.sum()  # ✅ 안쪽으로 들여쓰기
+            result[f"{col} ({min_v}~{max_v} 위반)"] = violation_mask.sum()  # 안쪽으로 들여쓰기
     return result
 
 def custom_preprocessing(df, rules):
@@ -97,15 +99,17 @@ def custom_preprocessing(df, rules):
     return df
 
 if use_sample_data:
-    df = pd.read_csv("/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
+    df = pd.read_csv("sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv")
     st.success("✅ 샘플 데이터를 사용하고 있습니다.")
-
+    
+st.divider()
+st.subheader("전처리 작업")
 if preview_button and (uploaded_files or use_sample_data):
     stats = []
 
     with st.spinner("규칙 위반 row 집계 중..."):
         if use_sample_data:
-            sample_path = "/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
+            sample_path = "sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
             df = pd.read_csv(sample_path)
             violations = get_violation_counts_custom(df, st.session_state['rules'])
             violations['file'] = "샘플_데이터"
@@ -117,6 +121,7 @@ if preview_button and (uploaded_files or use_sample_data):
                 violations = get_violation_counts_custom(df, st.session_state['rules'])
                 violations['file'] = f.name + "_preproc"
                 stats.append(violations)
+            use_sample_data=False
 
     st.write("파일별 전처리 규칙 위반 row 수")
     st.dataframe(pd.DataFrame(stats).fillna(0), use_container_width=True)
@@ -128,7 +133,7 @@ if st.button("전처리 시작") :
     
     
     if use_sample_data:
-        sample_path = "/home/shmoon/ev_streamlit/sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
+        sample_path = "sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
         sample_df = pd.read_csv(sample_path)
         df_proc = custom_preprocessing(sample_df, st.session_state['rules'])
         st.session_state['processed_files']['샘플_데이터'] = df_proc
