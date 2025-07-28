@@ -5,10 +5,15 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
 
 # 사이드바
-st.sidebar.title("옵션")
-uploaded_file = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"])
-chart_type = st.sidebar.selectbox("차트 타입 선택", [ "Line", "Scatter","Bar"])
-show_table = st.sidebar.checkbox("데이터 테이블 보기")
+with st.sidebar:
+    st.subheader("Server Info")
+    st.markdown("**시흥 gpuserver2** (59.14.241.229) - 5090*3")
+        
+    st.title("⚙️ 설정")   
+
+    uploaded_file = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"])
+    chart_type = st.sidebar.selectbox("차트 타입 선택", [ "Line", "Scatter","Bar"])
+    show_table = st.sidebar.checkbox("전체 데이터 테이블 보기")
 
 # 메인 화면
 st.title("📊 데이터 시각화 대시보드")
