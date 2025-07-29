@@ -5,6 +5,9 @@ import plotly.express as px
 
 st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
 
+if 'draw_graph' not in st.session_state:
+    st.session_state['draw_graph'] = False
+
 # 사이드바
 with st.sidebar:
     st.subheader("Server Info")
@@ -22,6 +25,9 @@ st.title("📊 데이터 시각화 대시보드")
 st.write("업로드한 데이터를 다양한 차트로 시각화할 수 있습니다.")
 
 if uploaded_file or use_sample_data:
+    if 'preview' not in st.session_state:
+        st.session_state['preview'] = False
+    
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
     else:
@@ -40,7 +46,7 @@ if uploaded_file or use_sample_data:
     is_timestamp_col = (
         x_col.strip().lower() == 'timestamp' or
         (x_dtype == object and x_data.str.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?").all())
-    )
+    ) 
     
     if is_timestamp_col:
         x_data = pd.to_datetime(x_data)
@@ -64,19 +70,19 @@ if uploaded_file or use_sample_data:
 
     # y축 컬럼 선택 및 미리보기
     y_cols = st.sidebar.multiselect("Y축 컬럼(복수 선택 가능)", df.columns)
-    preview = False
-    if y_cols:
-        if st.sidebar.button("미리보기"):
-            preview = True
-            st.session_state['preview'] = True
-    if 'preview' not in st.session_state:
-        st.session_state['preview'] = False
-    if preview:
+    
+    if y_cols and st.sidebar.button("미리보기"):
         st.session_state['preview'] = True
-    # 미리보기가 된 상태에서만 그래프 그리기 버튼 생성
+        st.session_state['draw_graph'] = False  # 그래프 상태 초기화
+
+    # preview 상태이면 데이터 미리보기 보여주고 "그래프 그리기" 버튼 표시
     if st.session_state['preview'] and y_cols:
         st.subheader("미리보기 데이터")
-        st.dataframe(filtered_df[[x_col] + y_cols],  use_container_width=True)
+        st.dataframe(filtered_df[[x_col] + y_cols], use_container_width=True)
+
+        st.session_state['draw_graph'] = True
+        
+    if st.session_state['draw_graph'] and y_cols:
         if st.button("그래프 그리기"):
             with st.spinner("그래프를 생성하고 있습니다..."):
                 st.subheader(f"{chart_type} 차트")
@@ -89,10 +95,10 @@ if uploaded_file or use_sample_data:
                 elif chart_type == "Bar":
                     fig = px.bar(filtered_df, x=x_col, y=y_cols, title="막대 차트")
 
-                st.plotly_chart(fig, use_container_width=True, key="main_plot")
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # 다음 클릭 전까지는 다시 안보이도록
+            st.session_state['draw_graph'] = False
 
-    if show_table:
-        st.subheader("전체 데이터")
-        st.dataframe(df, use_container_width=True)
 else:
     st.info("좌측 사이드바에서 CSV 파일을 업로드하세요.")
