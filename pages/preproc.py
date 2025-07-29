@@ -35,7 +35,7 @@ with st.sidebar:
     use_sample_data = st.sidebar.checkbox("샘플 데이터 사용")
     
     st.markdown("---")
-    # 👉 작업 초기화 버튼
+    # 작업 초기화 버튼
     if st.button("작업 초기화"):
         keys_to_reset = [
             "processed_files", "rules", "preview", "draw_graph",
@@ -122,14 +122,14 @@ if preview_button and (uploaded_files or use_sample_data):
             sample_path = "sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
             df = pd.read_csv(sample_path)
             violations = get_violation_counts_custom(df, st.session_state['rules'])
-            violations['file'] = "샘플_데이터"
+            violations['파일명_file'] = "샘플_데이터"
             stats.append(violations)
 
         elif uploaded_files:
             for f in uploaded_files:
                 df = pd.read_csv(f)
                 violations = get_violation_counts_custom(df, st.session_state['rules'])
-                violations['file'] = f.name + "_preproc"
+                violations['파일명_file'] = f.name + "_preproc"
                 stats.append(violations)
             use_sample_data=False
 
