@@ -12,6 +12,8 @@ COPY . .
 RUN mkdir -p /root/.streamlit
 COPY .streamlit/config.toml /root/.streamlit/config.toml
 
+COPY sample/ /app/sample/
+
 # 포트 8509 노출
 EXPOSE 8509
 
