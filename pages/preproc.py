@@ -34,7 +34,17 @@ with st.sidebar:
     uploaded_files = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"],accept_multiple_files=True)
     use_sample_data = st.sidebar.checkbox("샘플 데이터 사용")
     
-    
+    st.markdown("---")
+    # 👉 작업 초기화 버튼
+    if st.button("작업 초기화"):
+        keys_to_reset = [
+            "processed_files", "rules", "preview", "draw_graph",
+            "download_requested"
+        ]
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun() 
 
 st.title("배터와이 데이터 전처리")
 
@@ -150,21 +160,29 @@ if st.button("전처리 시작") :
 
     else:
         st.warning("⚠️ CSV를 업로드하거나 샘플 데이터를 선택하세요.")
+        
+        
+if 'download_requested' not in st.session_state:
+    st.session_state['download_requested'] = False
 
-# 파일 다운로드
 if st.button("파일 다운로드"):
     if not st.session_state.get('processed_files'):
         st.warning("⚠️ 먼저 '전처리 시작'을 클릭하세요.")
     else:
-        for filename, df_proc in st.session_state['processed_files'].items():
-            buffer = io.StringIO()
-            df_proc.to_csv(buffer, index=False)
-            csv_str = buffer.getvalue()
+        st.session_state['download_requested'] = True  # 클릭 기록
 
-            st.download_button(
-                label=f"📥 {filename} 전처리 결과 다운로드",
-                data=csv_str,
-                file_name=f"{os.path.splitext(filename)[0]}_preproc.csv",
-                mime="text/csv"
-            )
-        st.success("💾 다운로드 준비 완료!")
+if st.session_state.get('download_requested', False):
+    for i, (filename, df_proc) in enumerate(st.session_state['processed_files'].items()):
+        buffer = io.StringIO()
+        df_proc.to_csv(buffer, index=False)
+        csv_str = buffer.getvalue()
+
+        st.download_button(
+            label=f"📥 {filename} 전처리 결과 다운로드",
+            data=csv_str,
+            file_name=f"{os.path.splitext(filename)[0]}_preproc.csv",
+            mime="text/csv",
+            key=f"download_{i}"
+        )
+
+    st.success("💾 다운로드 준비 완료!")
