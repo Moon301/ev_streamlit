@@ -98,18 +98,34 @@ def analyze_column_relationships(dataframes):
         'all_columns': list(all_columns)
     }
 
-def group_columns_by_keywords(columns, keywords):
-    """키워드별로 컬럼들을 그룹화"""
+def group_columns_by_keywords(columns, default_keywords, additional_keywords):
+    """키워드별로 컬럼들을 그룹화
+    - default_keywords: 부분 문자열 매칭 (포함되면 그룹화)
+    - additional_keywords: 정확한 매칭 (완전히 일치하는 컬럼만 그룹화)
+    """
     groups = {}
     
-    for keyword in keywords:
+    # 기본 키워드들 - 부분 문자열 매칭
+    for keyword in default_keywords:
         keyword_lower = keyword.lower().strip()
         matching_cols = []
         
         for col in columns:
-            # 컬럼명도 앞뒤 공백 제거 후 비교
             col_clean = str(col).strip().lower()
-            if keyword_lower in col_clean:
+            if keyword_lower in col_clean:  # 부분 문자열 매칭
+                matching_cols.append(col)
+        
+        if matching_cols:
+            groups[keyword] = matching_cols
+    
+    # 추가 키워드들 - 정확한 매칭
+    for keyword in additional_keywords:
+        keyword_lower = keyword.lower().strip()
+        matching_cols = []
+        
+        for col in columns:
+            col_clean = str(col).strip().lower()
+            if keyword_lower == col_clean:  # 정확한 매칭
                 matching_cols.append(col)
         
         if matching_cols:
@@ -393,15 +409,17 @@ with st.sidebar:
         
         # 기본 키워드 제안
         default_keywords = st.text_input(
-            "분석할 기본 키워드(쉼표로 구분)", 
-            value="cell, temperature, current, soc"
+            "포함 검색 키워드(쉼표로 구분)", 
+            value="cell, temperature, current",
+            help="입력한 단어가 포함된 모든 컬럼을 찾습니다. 예: 'cell' → cell30, cell31, cell32 등"
         )
         keywords = [k.strip() for k in default_keywords.split(",") if k.strip()]
         
         # 추가 키워드
         additional_keywords = st.text_area(
-            "추가 키워드 (한 줄에 하나씩)",
-            placeholder="예:\speed\mileage\soh"
+            "정확 일치 키워드 (한 줄에 하나씩)",
+            placeholder="예:\speed\mileage\soh",
+            help="입력한 단어와 정확히 일치하는 컬럼만 찾습니다. 예: 'soc' → soc 컬럼만"
         )
         if additional_keywords:
             keywords.extend([k.strip() for k in additional_keywords.split("\n") if k.strip()])
@@ -505,8 +523,12 @@ if csv_files:
     
     # 분석 모드별 처리
     if analysis_mode == "키워드 그룹 분석":
+        
+        default_keywords_list = [k.strip() for k in default_keywords.split(",") if k.strip()]
+        additional_keywords_list = [k.strip() for k in additional_keywords.split("\n") if k.strip()] if additional_keywords else []
+    
         # 키워드 그룹 분석
-        if keywords and column_analysis['timestamp_cols']:
+        if (default_keywords_list or additional_keywords_list) and column_analysis['timestamp_cols']:
             
             st.divider()
             st.subheader("🕒 시간 집계 설정")
@@ -526,7 +548,11 @@ if csv_files:
                 st.info(f"💡 {time_agg_method} 집계: 같은 {time_agg_method.replace('별', '')} 내의 데이터들을 평균화합니다")
             
             # 키워드별 컬럼 그룹화
-            keyword_groups = group_columns_by_keywords(column_analysis['numeric_cols'], keywords)
+            keyword_groups = group_columns_by_keywords(
+                column_analysis['numeric_cols'], 
+                default_keywords_list, 
+                additional_keywords_list
+            )
             
             st.divider()
             if keyword_groups:
