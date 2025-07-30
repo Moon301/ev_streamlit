@@ -1,15 +1,9 @@
-from calendar import c
-from ntpath import samefile
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import os
-import numpy as np
 from pathlib import Path
-import re
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -18,46 +12,55 @@ st.set_page_config(page_title="데이터 패턴 시각화 대시보드", layout=
 if 'draw_graph' not in st.session_state:
     st.session_state['draw_graph'] = False
 
+@st.cache_data
 def load_csv_files_from_folder(folder_path):
     """폴더에서 모든 CSV 파일 로드"""
     csv_files = []
+    failed_files = []  # 실패한 파일들을 저장할 리스트
     folder = Path(folder_path)
     
     if not folder.exists():
         return []
+    with st.spinner("파일을 불러오고 있습니다..."):
+        for file_path in folder.glob("*.csv"):
+            try:
+                df = pd.read_csv(file_path)
+                
+                # 컬럼명 정리: 앞뒤 공백 제거
+                df.columns = df.columns.str.strip()
+                
+                # 빈 컬럼명이나 중복 컬럼명 처리
+                df.columns = [col if col else f'unnamed_{i}' for i, col in enumerate(df.columns)]
+                
+                # 중복 컬럼명 처리
+                cols = df.columns.tolist()
+                seen = {}
+                for i, col in enumerate(cols):
+                    if col in seen:
+                        seen[col] += 1
+                        cols[i] = f"{col}_{seen[col]}"
+                    else:
+                        seen[col] = 0
+                df.columns = cols
+                
+                csv_files.append({
+                    'filename': file_path.name,
+                    'filepath': str(file_path),
+                    'dataframe': df,
+                    'shape': df.shape
+                })
+            except Exception as e:
+                failed_files.append(f"**{file_path.name}**: {str(e)}")
     
-    for file_path in folder.glob("*.csv"):
-        try:
-            df = pd.read_csv(file_path)
-            
-            # 컬럼명 정리: 앞뒤 공백 제거
-            df.columns = df.columns.str.strip()
-            
-            # 빈 컬럼명이나 중복 컬럼명 처리
-            df.columns = [col if col else f'unnamed_{i}' for i, col in enumerate(df.columns)]
-            
-            # 중복 컬럼명 처리
-            cols = df.columns.tolist()
-            seen = {}
-            for i, col in enumerate(cols):
-                if col in seen:
-                    seen[col] += 1
-                    cols[i] = f"{col}_{seen[col]}"
-                else:
-                    seen[col] = 0
-            df.columns = cols
-            
-            csv_files.append({
-                'filename': file_path.name,
-                'filepath': str(file_path),
-                'dataframe': df,
-                'shape': df.shape
-            })
-        except Exception as e:
-            st.warning(f"{file_path.name} 파일을 읽을 수 없습니다: {e}")
+    # 실패한 파일들이 있으면 하나의 expander로 표시
+    if failed_files:
+        with st.expander(f"⚠️ 읽기 실패한 파일들 ({len(failed_files)}개) - 클릭해서 상세 보기"):
+            for failed_file in failed_files:
+                st.error(failed_file)
     
     return csv_files
 
+@st.cache_data
 def analyze_column_relationships(dataframes):
     """컬럼들 간의 관계성 분석"""
     all_columns = set()
@@ -98,44 +101,102 @@ def analyze_column_relationships(dataframes):
         'all_columns': list(all_columns)
     }
 
-def group_columns_by_keywords(columns, default_keywords, additional_keywords):
-    """키워드별로 컬럼들을 그룹화
-    - default_keywords: 부분 문자열 매칭 (포함되면 그룹화)
-    - additional_keywords: 정확한 매칭 (완전히 일치하는 컬럼만 그룹화)
-    """
-    groups = {}
+def get_incremental_keyword_groups(columns, default_keywords, additional_keywords):
+    """증분 업데이트로 키워드 그룹화 - 변경된 부분만 다시 계산"""
     
-    # 기본 키워드들 - 부분 문자열 매칭
-    for keyword in default_keywords:
+    # Session State 초기화
+    if 'keyword_groups_cache' not in st.session_state:
+        st.session_state.keyword_groups_cache = {}
+    if 'prev_default_keywords' not in st.session_state:
+        st.session_state.prev_default_keywords = set()
+    if 'prev_additional_keywords' not in st.session_state:
+        st.session_state.prev_additional_keywords = set()
+    
+    # 현재 키워드 세트
+    current_default = set(default_keywords)
+    current_additional = set(additional_keywords)
+    
+    # 이전 키워드 세트
+    prev_default = st.session_state.prev_default_keywords
+    prev_additional = st.session_state.prev_additional_keywords
+    
+    # 캐시된 그룹들
+    cached_groups = st.session_state.keyword_groups_cache.copy()
+    
+    # 1. 삭제된 키워드들 제거
+    deleted_default = prev_default - current_default
+    deleted_additional = prev_additional - current_additional
+    
+    for keyword in deleted_default | deleted_additional:
+        if keyword in cached_groups:
+            del cached_groups[keyword]
+            st.info(f"🗑️ '{keyword}' 그룹 삭제됨")
+    
+    # 2. 새로 추가된 키워드들만 계산
+    new_default = current_default - prev_default
+    new_additional = current_additional - prev_additional
+    
+    # 새로운 기본 키워드들 - 부분 문자열 매칭
+    for keyword in new_default:
         keyword_lower = keyword.lower().strip()
         matching_cols = []
         
         for col in columns:
             col_clean = str(col).strip().lower()
-            if keyword_lower in col_clean:  # 부분 문자열 매칭
+            if keyword_lower in col_clean:
                 matching_cols.append(col)
         
         if matching_cols:
-            groups[keyword] = matching_cols
+            cached_groups[keyword] = matching_cols
+            #st.success(f"✅ '{keyword}' 그룹 추가됨: {len(matching_cols)}개 컬럼")
     
-    # 추가 키워드들 - 정확한 매칭
-    for keyword in additional_keywords:
+    # 새로운 추가 키워드들 - 정확한 매칭
+    for keyword in new_additional:
         keyword_lower = keyword.lower().strip()
         matching_cols = []
         
         for col in columns:
             col_clean = str(col).strip().lower()
-            if keyword_lower == col_clean:  # 정확한 매칭
+            if keyword_lower == col_clean:
                 matching_cols.append(col)
         
         if matching_cols:
-            groups[keyword] = matching_cols
+            cached_groups[keyword] = matching_cols
+            #st.success(f"🎯 '{keyword}' 그룹 추가됨: {len(matching_cols)}개 컬럼")
     
-    return groups
+    # 3. Session State 업데이트
+    st.session_state.keyword_groups_cache = cached_groups
+    st.session_state.prev_default_keywords = current_default
+    st.session_state.prev_additional_keywords = current_additional
+    
+    # 4. 변경 사항 요약 표시
+    if new_default or new_additional or deleted_default or deleted_additional:
+        with st.expander("🔄 키워드 변경 사항"):
+            if new_default:
+                st.write(f"**새로 추가된 기본 키워드:** {', '.join(new_default)}")
+            if new_additional:
+                st.write(f"**새로 추가된 정확 키워드:** {', '.join(new_additional)}")
+            if deleted_default or deleted_additional:
+                deleted_all = deleted_default | deleted_additional
+                st.write(f"**삭제된 키워드:** {', '.join(deleted_all)}")
+    
+    return cached_groups
+
+def reset_keyword_cache():
+    """키워드 캐시 초기화 함수"""
+    if 'keyword_groups_cache' in st.session_state:
+        del st.session_state.keyword_groups_cache
+    if 'prev_default_keywords' in st.session_state:
+        del st.session_state.prev_default_keywords
+    if 'prev_additional_keywords' in st.session_state:
+        del st.session_state.prev_additional_keywords
+    st.success("🔄 키워드 캐시가 초기화되었습니다!")
+
 
 def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_method='mean', time_agg_method='정확한 시간'):
     """키워드 그룹별로 집계된 데이터프레임 생성"""
     combined_data = []
+    aggregation_summary = []  # 집계 요약 정보를 저장할 리스트
     
     for df_info in dataframes:
         df = df_info['dataframe'].copy()
@@ -154,11 +215,11 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
                 
                 # 시간 집계 방법에 따라 시간 컬럼 변환
                 if time_agg_method == "시간별":
-                    df['time_group'] = df[x_col_clean].dt.floor('H')  # 시간별로 그룹화
+                    df['time_group'] = df[x_col_clean].dt.floor('H')
                 elif time_agg_method == "일별":
-                    df['time_group'] = df[x_col_clean].dt.date  # 일별로 그룹화
+                    df['time_group'] = df[x_col_clean].dt.date
                 elif time_agg_method == "월별":
-                    df['time_group'] = df[x_col_clean].dt.to_period('M')  # 월별로 그룹화
+                    df['time_group'] = df[x_col_clean].dt.to_period('M')
                 else:  # 정확한 시간
                     df['time_group'] = df[x_col_clean]
                     
@@ -188,15 +249,33 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
                     elif agg_method == 'median':
                         df_subset[f'{keyword}_중앙값'] = df[available_cols].median(axis=1)
                     
-                    # 디버깅 정보 추가
-                    st.write(f"✅ '{keyword}' 그룹: {len(available_cols)}개 컬럼 집계됨")
-                    with st.expander(f"'{keyword}' 그룹 상세"):
-                        st.write(f"사용된 컬럼: {available_cols}")
+                    # 집계 요약 정보를 리스트에 저장 (개별 출력 대신)
+                    aggregation_summary.append({
+                        'keyword': keyword,
+                        'status': 'success',
+                        'count': len(available_cols),
+                        'columns': available_cols
+                    })
                         
                 except Exception as e:
-                    st.warning(f"⚠️ '{keyword}' 그룹 집계 중 오류: {e}")
+                    aggregation_summary.append({
+                        'keyword': keyword,
+                        'status': 'error',
+                        'error': str(e)
+                    })
         
         combined_data.append(df_subset)
+    
+    # 집계 요약을 하나의 expander로 표시
+    if aggregation_summary:
+        with st.expander(f"📊 키워드 그룹 집계 결과 ({len(aggregation_summary)}개 그룹)"):
+            for summary in aggregation_summary:
+                if summary['status'] == 'success':
+                    st.write(f"✅ **'{summary['keyword']}' 그룹**: {summary['count']}개 컬럼 집계됨")
+                    st.write(f"&nbsp;&nbsp;&nbsp;&nbsp;사용된 컬럼: {', '.join(summary['columns'])}")
+                else:
+                    st.write(f"⚠️ **'{summary['keyword']}' 그룹**: 집계 중 오류 - {summary['error']}")
+                st.write("---")
     
     if not combined_data:
         return None
@@ -291,8 +370,9 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
             rows=3, cols=2,
             subplot_titles=('시계열 패턴', '상관관계 히트맵', '분포 분석', '정규화 비교'),
             specs=[[{"colspan": 2}, None],
-                   [{"type": "xy"}, {"type": "xy"}],
-                   [{"colspan": 2}, None]   ]
+                    [{"type": "xy"}, {"type": "xy"}],
+                    [{"colspan": 2}, None]
+                    ]
         )
         
         # 1. 시계열 패턴
@@ -399,6 +479,7 @@ with st.sidebar:
         uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
         use_sample_data = st.checkbox("샘플 데이터 사용")
     else:
+        st.write("파일 경로 입력전 키워드 설정을 미리하는걸 추천드립니다.")
         folder_path = st.text_input("폴더 경로 입력", value="./sample")
         
     # 분석 모드 선택
@@ -485,9 +566,7 @@ else:
     except Exception as e:
         st.warning("⚠️ CSV를 업로드하거나 샘플 데이터를 선택하세요.")
         
-              
 
-        
 if csv_files:
     st.success(f"✅ {len(csv_files)}개의 CSV 파일을 발견했습니다.")
     
@@ -546,24 +625,27 @@ if csv_files:
             
             if time_agg_method != "정확한 시간":
                 st.info(f"💡 {time_agg_method} 집계: 같은 {time_agg_method.replace('별', '')} 내의 데이터들을 평균화합니다")
+            st.divider()
             
+            st.subheader("📊 키워드별 컬럼 그룹")
             # 키워드별 컬럼 그룹화
-            keyword_groups = group_columns_by_keywords(
+            keyword_groups = get_incremental_keyword_groups(
                 column_analysis['numeric_cols'], 
                 default_keywords_list, 
                 additional_keywords_list
             )
             
-            st.divider()
+            
             if keyword_groups:
-                st.subheader("📊 키워드별 컬럼 그룹")
-                
                 # 각 키워드 그룹 표시
                 for keyword, cols in keyword_groups.items():
-                    with st.expander(f"🔹 '{keyword}' 관련 컬럼들 ({len(cols)}개)"):
+                    with st.expander(f"🔘 '{keyword}' 관련 컬럼들 ({len(cols)}개)"):
                         for col in cols:
                             st.write(f"- {col}")
-                
+                        
+                # if st.button("키워드 그룹 초기화"):
+                #     reset_keyword_cache()
+                    
                 # 분석 실행 버튼
                 if st.button("🚀 키워드 그룹 분석 실행", type="primary"):
                     with st.spinner("키워드 그룹별 데이터를 분석하고 있습니다..."):
@@ -679,6 +761,8 @@ if csv_files:
                 st.warning("⚠️ 지정된 키워드와 일치하는 컬럼을 찾을 수 없습니다.")
         else:
             st.info("💡 분석할 키워드를 입력하고 시간축 컬럼을 선택해주세요.")
+            
+            
     
     elif analysis_mode == "자동 패턴 분석":
         # 기존 자동 분석 로직
