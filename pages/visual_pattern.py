@@ -272,10 +272,11 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
     if chart_type == "Multi-Line with Correlation":
         # 서브플롯 생성 (상관관계 히트맵 포함)
         fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('시계열 패턴', '상관관계 히트맵', '분포 분석', '트렌드 분석'),
+            rows=3, cols=2,
+            subplot_titles=('시계열 패턴', '상관관계 히트맵', '분포 분석', '정규화 비교'),
             specs=[[{"colspan": 2}, None],
-                   [{"type": "xy"}, {"type": "xy"}]]
+                   [{"type": "xy"}, {"type": "xy"}],
+                   [{"colspan": 2}, None]   ]
         )
         
         # 1. 시계열 패턴
@@ -297,7 +298,17 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
                     x=corr_matrix.columns,
                     y=corr_matrix.columns,
                     colorscale='RdBu',
-                    zmid=0
+                    zmid=0,
+                    colorbar=dict(
+                        x=0.47,  # 왼쪽으로 이동 (0~1 범위)
+                        y=0.50,  # 아래쪽으로 이동 (0~1 범위)
+                        len=0.25,  # 컬러바 길이 조정
+                        thickness=15,  # 컬러바 두께 조정
+                        title=dict(
+                            text="상관계수",
+                            side="right"
+                        )
+                    )
                 ),
                 row=2, col=1
             )
@@ -308,8 +319,19 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
                 go.Box(y=df[y_col], name=y_col),
                 row=2, col=2
             )
+            
+        # 4.정규화 분석
+        for y_col in y_cols:
+            if pd.api.types.is_numeric_dtype(aggregated_df[y_col]):
+                col_data = aggregated_df[y_col]
+                normalized = (col_data - col_data.min()) / (col_data.max() - col_data.min())
+                fig.add_trace(
+                    go.Scatter(x=aggregated_df[x_col], y=normalized, 
+                                name=f"{y_col} (정규화)", mode='lines'),
+                    row=3, col=1
+                )    
         
-        fig.update_layout(height=800, title_text="종합 패턴 분석")
+        fig.update_layout(height=1000, title_text="종합 패턴 분석", margin=dict(r=120))
         return fig
     
     elif chart_type == "Normalized Comparison":
@@ -543,12 +565,12 @@ if csv_files:
                             # 서브플롯 생성
                             fig = make_subplots(
                                 rows=2, cols=2,
-                                subplot_titles=('키워드 그룹별 트렌드', '그룹간 상관관계', '분포 비교', '정규화 비교'),
+                                subplot_titles=('그룹별 시계열 패턴', '그룹간 상관관계 히트맵', '정규화 비교'),
                                 specs=[[{"colspan": 2}, None],
                                         [{"type": "xy"}, {"type": "xy"}]]
                             )
                             
-                            # 1. 키워드 그룹별 트렌드
+                            # 1. 그룹별 시계열 패턴
                             for y_col in y_cols:
                                 fig.add_trace(
                                     go.Scatter(x=aggregated_df[x_col], y=aggregated_df[y_col], 
@@ -556,7 +578,7 @@ if csv_files:
                                     row=1, col=1
                                 )
                             
-                            # 2. 상관관계 히트맵
+                            # 2. 그룹별 상관관계 히트맵
                             if len(y_cols) > 1:
                                 corr_matrix = aggregated_df[y_cols].corr()
                                 fig.add_trace(
@@ -566,7 +588,17 @@ if csv_files:
                                         y=corr_matrix.columns,
                                         colorscale='RdBu',
                                         zmid=0,
-                                        showscale=True
+                                        showscale=True,
+                                        colorbar=dict(
+                                            x=0.47,  # 왼쪽으로 이동 (0~1 범위)
+                                            y=0.22,  # 아래쪽으로 이동 (0~1 범위)
+                                            len=0.35,  # 컬러바 길이 조정
+                                            thickness=15,  # 컬러바 두께 조정
+                                            title=dict(
+                                                text="상관계수",
+                                                side="right"
+                                            )
+                                        )
                                     ),
                                     row=2, col=1
                                 )
@@ -582,7 +614,7 @@ if csv_files:
                                         row=2, col=2
                                     )
                             
-                            fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석")
+                            fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석", margin=dict(r=120) )
                             st.plotly_chart(fig, use_container_width=True)
                         
                         else:
@@ -666,7 +698,9 @@ if csv_files:
         st.subheader("수동 컬럼 선택")
         
         available_cols = column_analysis['all_columns']
-        x_col = st.selectbox("X축 컬럼", available_cols)
+        
+        default_index = column_analysis['all_columns'].index('timestamp') if 'timestamp' in column_analysis['all_columns'] else 0
+        x_col = st.selectbox("X축 컬럼", available_cols, index=default_index)
         y_cols = st.multiselect("Y축 컬럼(복수 선택 가능)", available_cols)
         
         if x_col and y_cols and st.button("패턴 분석 실행"):
