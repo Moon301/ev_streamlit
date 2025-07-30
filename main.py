@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.express as px
 
-st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
+st.set_page_config(page_title="데이터 기본 시각화 대시보드", layout="wide")
 
 if 'draw_graph' not in st.session_state:
     st.session_state['draw_graph'] = False
@@ -21,8 +21,8 @@ with st.sidebar:
     show_table = st.sidebar.checkbox("전체 데이터 테이블 보기")
 
 # 메인 화면
-st.title("📊 데이터 시각화 대시보드")
-st.write("업로드한 데이터를 다양한 차트로 시각화할 수 있습니다.")
+st.title("📊 데이터 기본 시각화 대시보드")
+st.write("해당 프로젝트는 배터와이 데이터에 최적화 되어 있습니다. 그 외 데이터는 적합하지 않을 수 있습니다.")
 
 if uploaded_file or use_sample_data:
     if 'preview' not in st.session_state:

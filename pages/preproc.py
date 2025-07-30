@@ -46,7 +46,7 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun() 
 
-st.title("배터와이 데이터 전처리")
+st.title("🗂️ 데이터 전처리 대시보드")
 
 
 st.subheader("설정된 규칙")

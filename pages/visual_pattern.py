@@ -13,7 +13,7 @@ import re
 import warnings
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="데이터 시각화 대시보드", layout="wide")
+st.set_page_config(page_title="데이터 패턴 시각화 대시보드", layout="wide")
 
 if 'draw_graph' not in st.session_state:
     st.session_state['draw_graph'] = False
