@@ -1,3 +1,5 @@
+from calendar import c
+from ntpath import samefile
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -361,28 +363,28 @@ with st.sidebar:
     else:
         folder_path = st.text_input("폴더 경로 입력", value="./sample")
         
-        # 분석 모드 선택
-        analysis_mode = st.radio("분석 모드", ["키워드 그룹 분석", "수동 선택"]) # "자동 패턴 분석" 일단 제거함
+    # 분석 모드 선택
+    analysis_mode = st.radio("분석 모드", ["키워드 그룹 분석", "수동 선택"]) # "자동 패턴 분석" 일단 제거함
         
-        if analysis_mode == "키워드 그룹 분석":
-            st.subheader("🔍 키워드 설정")
-            
-            # 기본 키워드 제안
-            default_keywords = st.text_input(
-                "분석할 키워드들 (쉼표로 구분)", 
-                value="cell, temperature, voltage, current, soc, pressure"
-            )
-            keywords = [k.strip() for k in default_keywords.split(",") if k.strip()]
-            
-            # 추가 키워드
-            additional_keywords = st.text_area(
-                "추가 키워드 (한 줄에 하나씩)",
-                placeholder="예:\speed\mileage\soh"
-            )
-            if additional_keywords:
-                keywords.extend([k.strip() for k in additional_keywords.split("\n") if k.strip()])
+    if analysis_mode == "키워드 그룹 분석":
+        st.subheader("🔍 키워드 설정")
         
-        agg_method = st.selectbox("집계 방법", ["mean", "sum", "median"])
+        # 기본 키워드 제안
+        default_keywords = st.text_input(
+            "분석할 기본 키워드(쉼표로 구분)", 
+            value="cell, temperature, current, soc"
+        )
+        keywords = [k.strip() for k in default_keywords.split(",") if k.strip()]
+        
+        # 추가 키워드
+        additional_keywords = st.text_area(
+            "추가 키워드 (한 줄에 하나씩)",
+            placeholder="예:\speed\mileage\soh"
+        )
+        if additional_keywords:
+            keywords.extend([k.strip() for k in additional_keywords.split("\n") if k.strip()])
+    
+    agg_method = st.selectbox("집계 방법", ["mean", "sum", "median"])
     
     chart_type = st.selectbox("차트 타입 선택", [
         "Line", "Scatter", "Bar", 
@@ -399,312 +401,285 @@ st.write("업로드한 데이터 또는 폴더 내 데이터를 다양한 차트
 if data_source == "폴더 분석":
     if folder_path:
         csv_files = load_csv_files_from_folder(folder_path)
+else:
+    csv_files = []
+    df = pd.DataFrame()
+
+    try:
+        # 데이터 읽기
+        if use_sample_data:
+            filepath = "sample/628dani_V031BL0000_CASPER LONGRANGE_202410.csv"
+            df = pd.read_csv(filepath)
+            filename = "sampledata.csv"
+        elif uploaded_file:
+            df = pd.read_csv(uploaded_file)
+            filepath = str(uploaded_file)
+            filename = uploaded_file.name
+        else:
+            raise ValueError("파일 없음")
+
+        # 컬럼명 정리
+        df.columns = df.columns.str.strip()  # 앞뒤 공백 제거
+        df.columns = [col if col else f'unnamed_{i}' for i, col in enumerate(df.columns)]  # 빈 컬럼 처리
+
+        # 중복 컬럼명 처리
+        seen = {}
+        new_cols = []
+        for col in df.columns:
+            if col in seen:
+                seen[col] += 1
+                new_cols.append(f"{col}_{seen[col]}")
+            else:
+                seen[col] = 0
+                new_cols.append(col)
+        df.columns = new_cols
+
+        # 결과 추가
+        csv_files.append({
+            'filename': filename,
+            'filepath': filepath,
+            'dataframe': df,
+            'shape': df.shape
+        })
+
+    except Exception as e:
+        st.warning("⚠️ CSV를 업로드하거나 샘플 데이터를 선택하세요.")
         
-        if csv_files:
-            st.success(f"✅ {len(csv_files)}개의 CSV 파일을 발견했습니다.")
+              
+
+        
+if csv_files:
+    st.success(f"✅ {len(csv_files)}개의 CSV 파일을 발견했습니다.")
+    
+    # 파일 목록 표시
+    with st.expander("발견된 파일들"):
+        for file_info in csv_files:
+            st.write(f"- **{file_info['filename']}**: {file_info['shape']} (행, 열)")
+    
+    # 컬럼 관계 분석
+    column_analysis = analyze_column_relationships(csv_files)
+    
+    st.subheader("🔍 컬럼 분석 결과")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.write("**시간 관련 컬럼**")
+        for col in column_analysis['timestamp_cols']:
+            st.write(f"- {col}")
+    
+    with col2:
+        st.write("**숫자형 컬럼**")
+        for col in column_analysis['numeric_cols'][:10]:  # 최대 10개만 표시
+            st.write(f"- {col}")
+        if len(column_analysis['numeric_cols']) > 10:
+            st.write(f"... 외 {len(column_analysis['numeric_cols']) - 10}개")
+    
+    with col3:
+        st.write("**범주형 컬럼**")
+        for col in column_analysis['categorical_cols'][:10]:  # 최대 10개만 표시
+            st.write(f"- {col}")
+        if len(column_analysis['categorical_cols']) > 10:
+            st.write(f"... 외 {len(column_analysis['categorical_cols']) - 10}개")
+    
+    # 분석 모드별 처리
+    if analysis_mode == "키워드 그룹 분석":
+        # 키워드 그룹 분석
+        if keywords and column_analysis['timestamp_cols']:
             
-            # 파일 목록 표시
-            with st.expander("발견된 파일들"):
-                for file_info in csv_files:
-                    st.write(f"- **{file_info['filename']}**: {file_info['shape']} (행, 열)")
+            st.divider()
+            st.subheader("🕒 시간 집계 설정")
             
-            # 컬럼 관계 분석
-            column_analysis = analyze_column_relationships(csv_files)
+            default_index = column_analysis['timestamp_cols'].index('timestamp') if 'timestamp' in column_analysis['timestamp_cols'] else 0
             
-            st.subheader("🔍 컬럼 분석 결과")
-            col1, col2, col3 = st.columns(3)
+            x_col = st.selectbox("시간축 컬럼", column_analysis['timestamp_cols'], index=default_index)
             
-            with col1:
-                st.write("**시간 관련 컬럼**")
-                for col in column_analysis['timestamp_cols']:
-                    st.write(f"- {col}")
+            # 시간 집계 방법 선택 추가
+            time_agg_method = st.selectbox(
+                "시간 집계 방법", 
+                ["정확한 시간", "시간별", "일별", "월별"],
+                help="서로 다른 시간대의 데이터를 어떻게 집계할지 선택하세요"
+            )
             
-            with col2:
-                st.write("**숫자형 컬럼**")
-                for col in column_analysis['numeric_cols'][:10]:  # 최대 10개만 표시
-                    st.write(f"- {col}")
-                if len(column_analysis['numeric_cols']) > 10:
-                    st.write(f"... 외 {len(column_analysis['numeric_cols']) - 10}개")
+            if time_agg_method != "정확한 시간":
+                st.info(f"💡 {time_agg_method} 집계: 같은 {time_agg_method.replace('별', '')} 내의 데이터들을 평균화합니다")
             
-            with col3:
-                st.write("**범주형 컬럼**")
-                for col in column_analysis['categorical_cols'][:10]:  # 최대 10개만 표시
-                    st.write(f"- {col}")
-                if len(column_analysis['categorical_cols']) > 10:
-                    st.write(f"... 외 {len(column_analysis['categorical_cols']) - 10}개")
+            # 키워드별 컬럼 그룹화
+            keyword_groups = group_columns_by_keywords(column_analysis['numeric_cols'], keywords)
             
-            # 분석 모드별 처리
-            if analysis_mode == "키워드 그룹 분석":
-                # 키워드 그룹 분석
-                if keywords and column_analysis['timestamp_cols']:
+            st.divider()
+            if keyword_groups:
+                st.subheader("📊 키워드별 컬럼 그룹")
+                
+                # 각 키워드 그룹 표시
+                for keyword, cols in keyword_groups.items():
+                    with st.expander(f"🔹 '{keyword}' 관련 컬럼들 ({len(cols)}개)"):
+                        for col in cols:
+                            st.write(f"- {col}")
+                
+                # 분석 실행 버튼
+                if st.button("🚀 키워드 그룹 분석 실행", type="primary"):
+                    with st.spinner("키워드 그룹별 데이터를 분석하고 있습니다..."):
+                        aggregated_df = create_keyword_aggregated_dataframe(
+                            csv_files, x_col, keyword_groups, agg_method, time_agg_method
+                        )
                     
-                    st.divider()
-                    st.subheader("🕒 시간 집계 설정")
-                    
-                    default_index = column_analysis['timestamp_cols'].index('timestamp') if 'timestamp' in column_analysis['timestamp_cols'] else 0
-                    
-                    x_col = st.selectbox("시간축 컬럼", column_analysis['timestamp_cols'], index=default_index)
-                    
-                    # 시간 집계 방법 선택 추가
-                    time_agg_method = st.selectbox(
-                        "시간 집계 방법", 
-                        ["정확한 시간", "시간별", "일별", "월별"],
-                        help="서로 다른 시간대의 데이터를 어떻게 집계할지 선택하세요"
-                    )
-                    
-                    if time_agg_method != "정확한 시간":
-                        st.info(f"💡 {time_agg_method} 집계: 같은 {time_agg_method.replace('별', '')} 내의 데이터들을 평균화합니다")
-                    
-                    # 키워드별 컬럼 그룹화
-                    keyword_groups = group_columns_by_keywords(column_analysis['numeric_cols'], keywords)
-                    
-                    st.divider()
-                    if keyword_groups:
-                        st.subheader("📊 키워드별 컬럼 그룹")
+                    if aggregated_df is not None and len(aggregated_df) > 0:
+                        st.subheader("📈 키워드 그룹별 패턴 분석")
                         
-                        # 각 키워드 그룹 표시
-                        for keyword, cols in keyword_groups.items():
-                            with st.expander(f"🔹 '{keyword}' 관련 컬럼들 ({len(cols)}개)"):
-                                for col in cols:
-                                    st.write(f"- {col}")
-                        
-                        # 분석 실행 버튼
-                        if st.button("🚀 키워드 그룹 분석 실행", type="primary"):
-                            with st.spinner("키워드 그룹별 데이터를 분석하고 있습니다..."):
-                                aggregated_df = create_keyword_aggregated_dataframe(
-                                    csv_files, x_col, keyword_groups, agg_method, time_agg_method
-                                )
-                            
-                            if aggregated_df is not None and len(aggregated_df) > 0:
-                                st.subheader("📈 키워드 그룹별 패턴 분석")
-                                
-                                # 요약 통계
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("분석된 키워드 그룹", len(keyword_groups))
-                                with col2:
-                                    st.metric("데이터 포인트", len(aggregated_df))
-                                with col3:
-                                    group_cols = [col for col in aggregated_df.columns if col != x_col]
-                                    st.metric("생성된 지표", len(group_cols))
-                                
-                                # 키워드 그룹별 차트
-                                y_cols = [col for col in aggregated_df.columns if col != x_col]
-                                
-                                if chart_type == "Multi-Line with Correlation":
-                                    # 서브플롯 생성
-                                    fig = make_subplots(
-                                        rows=2, cols=2,
-                                        subplot_titles=('키워드 그룹별 트렌드', '그룹간 상관관계', '분포 비교', '정규화 비교'),
-                                        specs=[[{"colspan": 2}, None],
-                                               [{"type": "xy"}, {"type": "xy"}]]
-                                    )
-                                    
-                                    # 1. 키워드 그룹별 트렌드
-                                    for y_col in y_cols:
-                                        fig.add_trace(
-                                            go.Scatter(x=aggregated_df[x_col], y=aggregated_df[y_col], 
-                                                     name=y_col, mode='lines+markers'),
-                                            row=1, col=1
-                                        )
-                                    
-                                    # 2. 상관관계 히트맵
-                                    if len(y_cols) > 1:
-                                        corr_matrix = aggregated_df[y_cols].corr()
-                                        fig.add_trace(
-                                            go.Heatmap(
-                                                z=corr_matrix.values,
-                                                x=corr_matrix.columns,
-                                                y=corr_matrix.columns,
-                                                colorscale='RdBu',
-                                                zmid=0,
-                                                showscale=True
-                                            ),
-                                            row=2, col=1
-                                        )
-                                    
-                                    # 3. 정규화 비교
-                                    for y_col in y_cols:
-                                        if pd.api.types.is_numeric_dtype(aggregated_df[y_col]):
-                                            col_data = aggregated_df[y_col]
-                                            normalized = (col_data - col_data.min()) / (col_data.max() - col_data.min())
-                                            fig.add_trace(
-                                                go.Scatter(x=aggregated_df[x_col], y=normalized, 
-                                                         name=f"{y_col} (정규화)", mode='lines'),
-                                                row=2, col=2
-                                            )
-                                    
-                                    fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석")
-                                    st.plotly_chart(fig, use_container_width=True)
-                                
-                                else:
-                                    # 기본 차트
-                                    fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
-                                    st.plotly_chart(fig, use_container_width=True)
-                                
-                                # 상세 통계 정보
-                                with st.expander("📋 상세 통계 정보"):
-                                    st.write("**각 키워드 그룹별 기본 통계:**")
-                                    for col in y_cols:
-                                        col_stats = aggregated_df[col].describe()
-                                        st.write(f"**{col}**")
-                                        st.write(f"- 평균: {col_stats['mean']:.2f}")
-                                        st.write(f"- 표준편차: {col_stats['std']:.2f}")
-                                        st.write(f"- 최솟값: {col_stats['min']:.2f}")
-                                        st.write(f"- 최댓값: {col_stats['max']:.2f}")
-                                        st.write("---")
-                                
-                                # 데이터 테이블 (옵션)
-                                if show_table:
-                                    st.subheader("집계된 키워드 그룹 데이터")
-                                    st.dataframe(aggregated_df, use_container_width=True)
-                                    
-                                    # CSV 다운로드 버튼
-                                    csv = aggregated_df.to_csv(index=False)
-                                    st.download_button(
-                                        label="키워드 그룹 분석 결과 다운로드 (CSV)",
-                                        data=csv,
-                                        file_name=f"keyword_group_analysis_{agg_method}.csv",
-                                        mime="text/csv"
-                                    )
-                            else:
-                                st.warning("⚠️ 분석할 수 있는 데이터가 없습니다. 키워드나 파일을 확인해주세요.")
-                    else:
-                        st.warning("⚠️ 지정된 키워드와 일치하는 컬럼을 찾을 수 없습니다.")
-                else:
-                    st.info("💡 분석할 키워드를 입력하고 시간축 컬럼을 선택해주세요.")
-            
-            elif analysis_mode == "자동 패턴 분석":
-                # 기존 자동 분석 로직
-                if column_analysis['timestamp_cols'] and column_analysis['numeric_cols']:
-                    
-                    default_index = column_analysis['timestamp_cols'].index('timestamp') if 'timestamp' in column_analysis['timestamp_cols'] else 0
-                    
-                    x_col = column_analysis['timestamp_cols'][default_index]
-                    y_cols = column_analysis['numeric_cols'][:5]
-                    
-                    st.success(f"🤖 자동 선택: X축={x_col}, Y축={', '.join(y_cols)}")
-                    
-                    with st.spinner("데이터를 집계하고 있습니다..."):
-                        aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
-                    
-                    if aggregated_df is not None:
-                        st.subheader("📈 패턴 분석 결과")
-                        
+                        # 요약 통계
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("총 데이터 포인트", len(aggregated_df))
+                            st.metric("분석된 키워드 그룹", len(keyword_groups))
                         with col2:
-                            st.metric("분석 기간", f"{len(aggregated_df)}개 구간")
+                            st.metric("데이터 포인트", len(aggregated_df))
                         with col3:
-                            st.metric("분석 지표", len(y_cols))
+                            group_cols = [col for col in aggregated_df.columns if col != x_col]
+                            st.metric("생성된 지표", len(group_cols))
                         
-                        fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
-                        st.plotly_chart(fig, use_container_width=True)
+                        # 키워드 그룹별 차트
+                        y_cols = [col for col in aggregated_df.columns if col != x_col]
                         
+                        if chart_type == "Multi-Line with Correlation":
+                            # 서브플롯 생성
+                            fig = make_subplots(
+                                rows=2, cols=2,
+                                subplot_titles=('키워드 그룹별 트렌드', '그룹간 상관관계', '분포 비교', '정규화 비교'),
+                                specs=[[{"colspan": 2}, None],
+                                        [{"type": "xy"}, {"type": "xy"}]]
+                            )
+                            
+                            # 1. 키워드 그룹별 트렌드
+                            for y_col in y_cols:
+                                fig.add_trace(
+                                    go.Scatter(x=aggregated_df[x_col], y=aggregated_df[y_col], 
+                                                name=y_col, mode='lines+markers'),
+                                    row=1, col=1
+                                )
+                            
+                            # 2. 상관관계 히트맵
+                            if len(y_cols) > 1:
+                                corr_matrix = aggregated_df[y_cols].corr()
+                                fig.add_trace(
+                                    go.Heatmap(
+                                        z=corr_matrix.values,
+                                        x=corr_matrix.columns,
+                                        y=corr_matrix.columns,
+                                        colorscale='RdBu',
+                                        zmid=0,
+                                        showscale=True
+                                    ),
+                                    row=2, col=1
+                                )
+                            
+                            # 3. 정규화 비교
+                            for y_col in y_cols:
+                                if pd.api.types.is_numeric_dtype(aggregated_df[y_col]):
+                                    col_data = aggregated_df[y_col]
+                                    normalized = (col_data - col_data.min()) / (col_data.max() - col_data.min())
+                                    fig.add_trace(
+                                        go.Scatter(x=aggregated_df[x_col], y=normalized, 
+                                                    name=f"{y_col} (정규화)", mode='lines'),
+                                        row=2, col=2
+                                    )
+                            
+                            fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석")
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        else:
+                            # 기본 차트
+                            fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # 상세 통계 정보
+                        with st.expander("📋 상세 통계 정보"):
+                            st.write("**각 키워드 그룹별 기본 통계:**")
+                            for col in y_cols:
+                                col_stats = aggregated_df[col].describe()
+                                st.write(f"**{col}**")
+                                st.write(f"- 평균: {col_stats['mean']:.2f}")
+                                st.write(f"- 표준편차: {col_stats['std']:.2f}")
+                                st.write(f"- 최솟값: {col_stats['min']:.2f}")
+                                st.write(f"- 최댓값: {col_stats['max']:.2f}")
+                                st.write("---")
+                        
+                        # 데이터 테이블 (옵션)
                         if show_table:
-                            st.subheader("집계된 데이터")
+                            st.subheader("집계된 키워드 그룹 데이터")
                             st.dataframe(aggregated_df, use_container_width=True)
                             
+                            # CSV 다운로드 버튼
                             csv = aggregated_df.to_csv(index=False)
                             st.download_button(
-                                label="집계된 데이터 다운로드 (CSV)",
+                                label="키워드 그룹 분석 결과 다운로드 (CSV)",
                                 data=csv,
-                                file_name=f"aggregated_data_{agg_method}.csv",
+                                file_name=f"keyword_group_analysis_{agg_method}.csv",
                                 mime="text/csv"
                             )
-                
-            else:  # 수동 선택 모드
-                st.subheader("수동 컬럼 선택")
-                
-                available_cols = column_analysis['all_columns']
-                x_col = st.selectbox("X축 컬럼", available_cols)
-                y_cols = st.multiselect("Y축 컬럼(복수 선택 가능)", available_cols)
-                
-                if x_col and y_cols and st.button("패턴 분석 실행"):
-                    with st.spinner("데이터를 분석하고 있습니다..."):
-                        aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
-                    
-                    if aggregated_df is not None:
-                        fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        if show_table:
-                            st.dataframe(aggregated_df, use_container_width=True)
+                    else:
+                        st.warning("⚠️ 분석할 수 있는 데이터가 없습니다. 키워드나 파일을 확인해주세요.")
+            else:
+                st.warning("⚠️ 지정된 키워드와 일치하는 컬럼을 찾을 수 없습니다.")
         else:
-            st.warning("⚠️ 지정된 폴더에서 CSV 파일을 찾을 수 없습니다.")
-
-# 기존 단일 파일 모드 (기존 코드 유지)
-elif uploaded_file or use_sample_data:
-    if 'preview' not in st.session_state:
-        st.session_state['preview'] = False
+            st.info("💡 분석할 키워드를 입력하고 시간축 컬럼을 선택해주세요.")
     
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        # 업로드된 파일도 컬럼명 정리
-        df.columns = df.columns.str.strip()
-    else:
-        st.error("업로드된 데이터가 없습니다.")
-    
-    st.subheader("데이터 미리보기")
-    st.dataframe(df.head())
-
-    x_col = st.sidebar.selectbox("X축 컬럼", df.columns)
-
-    # x축 범위 지정 UI
-    x_data = df[x_col]
-    x_dtype = x_data.dtype
-
-    # 날짜형식 문자열 자동 인식 및 변환
-    is_timestamp_col = (
-        x_col.strip().lower() == 'timestamp' or
-        (x_dtype == object and x_data.str.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?").all())
-    ) 
-    
-    if is_timestamp_col:
-        x_data = pd.to_datetime(x_data)
-        x_dtype = x_data.dtype
-
-    x_range = None
-    if pd.api.types.is_numeric_dtype(x_dtype):
-        min_val, max_val = float(x_data.min()), float(x_data.max())
-        x_range = st.sidebar.slider("X축 범위", min_val, max_val, (min_val, max_val))
-        mask = (x_data >= x_range[0]) & (x_data <= x_range[1])
-    elif pd.api.types.is_datetime64_any_dtype(x_dtype):
-        min_date, max_date = x_data.min().date(), x_data.max().date()
-        x_range = st.sidebar.slider("X축 날짜 범위", min_date, max_date, (min_date, max_date))
-        mask = (x_data.dt.date >= x_range[0]) & (x_data.dt.date <= x_range[1])
-    else:
-        unique_vals = x_data.unique()
-        selected = st.sidebar.multiselect("X축 값 선택", unique_vals, default=list(unique_vals))
-        mask = x_data.isin(selected)
-
-    filtered_df = df[mask]
-
-    # y축 컬럼 선택 및 미리보기
-    y_cols = st.sidebar.multiselect("Y축 컬럼(복수 선택 가능)", df.columns)
-    
-    if y_cols and st.sidebar.button("미리보기"):
-        st.session_state['preview'] = True
-        st.session_state['draw_graph'] = False
-
-    # preview 상태이면 데이터 미리보기 보여주고 "그래프 그리기" 버튼 표시
-    if st.session_state['preview'] and y_cols:
-        st.subheader("미리보기 데이터")
-        st.dataframe(filtered_df[[x_col] + y_cols], use_container_width=True)
-
-        st.session_state['draw_graph'] = True
-        
-    if st.session_state['draw_graph'] and y_cols:
-        if st.button("그래프 그리기"):
-            with st.spinner("그래프를 생성하고 있습니다..."):
-                st.subheader(f"{chart_type} 차트")
-
-                # 패턴 분석 차트 생성
-                fig = create_pattern_analysis_chart(filtered_df, x_col, y_cols, chart_type)
-                st.plotly_chart(fig, use_container_width=True)
+    elif analysis_mode == "자동 패턴 분석":
+        # 기존 자동 분석 로직
+        if column_analysis['timestamp_cols'] and column_analysis['numeric_cols']:
             
-            st.session_state['draw_graph'] = False
-
+            default_index = column_analysis['timestamp_cols'].index('timestamp') if 'timestamp' in column_analysis['timestamp_cols'] else 0
+            
+            x_col = column_analysis['timestamp_cols'][default_index]
+            y_cols = column_analysis['numeric_cols'][:5]
+            
+            st.success(f"🤖 자동 선택: X축={x_col}, Y축={', '.join(y_cols)}")
+            
+            with st.spinner("데이터를 집계하고 있습니다..."):
+                aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
+            
+            if aggregated_df is not None:
+                st.subheader("📈 패턴 분석 결과")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("총 데이터 포인트", len(aggregated_df))
+                with col2:
+                    st.metric("분석 기간", f"{len(aggregated_df)}개 구간")
+                with col3:
+                    st.metric("분석 지표", len(y_cols))
+                
+                fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                if show_table:
+                    st.subheader("집계된 데이터")
+                    st.dataframe(aggregated_df, use_container_width=True)
+                    
+                    csv = aggregated_df.to_csv(index=False)
+                    st.download_button(
+                        label="집계된 데이터 다운로드 (CSV)",
+                        data=csv,
+                        file_name=f"aggregated_data_{agg_method}.csv",
+                        mime="text/csv"
+                    )
+        
+    else:  # 수동 선택 모드
+        st.subheader("수동 컬럼 선택")
+        
+        available_cols = column_analysis['all_columns']
+        x_col = st.selectbox("X축 컬럼", available_cols)
+        y_cols = st.multiselect("Y축 컬럼(복수 선택 가능)", available_cols)
+        
+        if x_col and y_cols and st.button("패턴 분석 실행"):
+            with st.spinner("데이터를 분석하고 있습니다..."):
+                aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
+            
+            if aggregated_df is not None:
+                fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                if show_table:
+                    st.dataframe(aggregated_df, use_container_width=True)
 else:
-    st.info("좌측 사이드바에서 데이터 소스를 선택하세요.")
+    if data_source == "폴더 분석":
+        st.warning("⚠️ 지정된 폴더에서 CSV 파일을 찾을 수 없습니다.")
+
