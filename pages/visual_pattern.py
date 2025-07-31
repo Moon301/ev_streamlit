@@ -9,14 +9,28 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="데이터 패턴 시각화 대시보드", layout="wide")
 
-if 'draw_graph' not in st.session_state:
-    st.session_state['draw_graph'] = False
+# Session State 초기화 함수
+def initialize_session_state():
+    """Session state 초기화"""
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.draw_chart = False
+        st.session_state.aggregated_df = None
+        st.session_state.x_col = None
+        st.session_state.chart_type = None
+        st.session_state.keyword_groups_cache = {}
+        st.session_state.prev_default_keywords = set()
+        st.session_state.prev_additional_keywords = set()
+        st.session_state.last_analysis_params = None  # 분석 파라미터 캐싱용
+
+# 초기화 실행
+initialize_session_state()
 
 @st.cache_data
 def load_csv_files_from_folder(folder_path):
     """폴더에서 모든 CSV 파일 로드"""
     csv_files = []
-    failed_files = []  # 실패한 파일들을 저장할 리스트
+    failed_files = []
     folder = Path(folder_path)
     
     if not folder.exists():
@@ -101,43 +115,20 @@ def analyze_column_relationships(dataframes):
         'all_columns': list(all_columns)
     }
 
-def get_incremental_keyword_groups(columns, default_keywords, additional_keywords):
-    """증분 업데이트로 키워드 그룹화 - 변경된 부분만 다시 계산"""
+def get_keyword_groups(columns, default_keywords, additional_keywords):
+    """키워드 그룹화 함수 - 조건부 실행으로 변경"""
+    # 현재 파라미터로 캐시 키 생성
+    cache_key = f"{','.join(sorted(default_keywords))}__{','.join(sorted(additional_keywords))}__{len(columns)}"
     
-    # Session State 초기화
-    if 'keyword_groups_cache' not in st.session_state:
-        st.session_state.keyword_groups_cache = {}
-    if 'prev_default_keywords' not in st.session_state:
-        st.session_state.prev_default_keywords = set()
-    if 'prev_additional_keywords' not in st.session_state:
-        st.session_state.prev_additional_keywords = set()
+    # 캐시된 결과가 있고 동일한 파라미터라면 기존 결과 반환
+    if 'keyword_groups_result' in st.session_state and st.session_state.get('keyword_groups_cache_key') == cache_key:
+        return st.session_state.keyword_groups_result
     
-    # 현재 키워드 세트
-    current_default = set(default_keywords)
-    current_additional = set(additional_keywords)
+    # 새로 계산
+    keyword_groups = {}
     
-    # 이전 키워드 세트
-    prev_default = st.session_state.prev_default_keywords
-    prev_additional = st.session_state.prev_additional_keywords
-    
-    # 캐시된 그룹들
-    cached_groups = st.session_state.keyword_groups_cache.copy()
-    
-    # 1. 삭제된 키워드들 제거
-    deleted_default = prev_default - current_default
-    deleted_additional = prev_additional - current_additional
-    
-    for keyword in deleted_default | deleted_additional:
-        if keyword in cached_groups:
-            del cached_groups[keyword]
-            st.info(f"🗑️ '{keyword}' 그룹 삭제됨")
-    
-    # 2. 새로 추가된 키워드들만 계산
-    new_default = current_default - prev_default
-    new_additional = current_additional - prev_additional
-    
-    # 새로운 기본 키워드들 - 부분 문자열 매칭
-    for keyword in new_default:
+    # 기본 키워드들 - 부분 문자열 매칭
+    for keyword in default_keywords:
         keyword_lower = keyword.lower().strip()
         matching_cols = []
         
@@ -147,11 +138,10 @@ def get_incremental_keyword_groups(columns, default_keywords, additional_keyword
                 matching_cols.append(col)
         
         if matching_cols:
-            cached_groups[keyword] = matching_cols
-            #st.success(f"✅ '{keyword}' 그룹 추가됨: {len(matching_cols)}개 컬럼")
+            keyword_groups[keyword] = matching_cols
     
-    # 새로운 추가 키워드들 - 정확한 매칭
-    for keyword in new_additional:
+    # 추가 키워드들 - 정확한 매칭
+    for keyword in additional_keywords:
         keyword_lower = keyword.lower().strip()
         matching_cols = []
         
@@ -161,53 +151,29 @@ def get_incremental_keyword_groups(columns, default_keywords, additional_keyword
                 matching_cols.append(col)
         
         if matching_cols:
-            cached_groups[keyword] = matching_cols
-            #st.success(f"🎯 '{keyword}' 그룹 추가됨: {len(matching_cols)}개 컬럼")
+            keyword_groups[keyword] = matching_cols
     
-    # 3. Session State 업데이트
-    st.session_state.keyword_groups_cache = cached_groups
-    st.session_state.prev_default_keywords = current_default
-    st.session_state.prev_additional_keywords = current_additional
+    # 결과 캐싱
+    st.session_state.keyword_groups_result = keyword_groups
+    st.session_state.keyword_groups_cache_key = cache_key
     
-    # 4. 변경 사항 요약 표시
-    if new_default or new_additional or deleted_default or deleted_additional:
-        with st.expander("🔄 키워드 변경 사항"):
-            if new_default:
-                st.write(f"**새로 추가된 기본 키워드:** {', '.join(new_default)}")
-            if new_additional:
-                st.write(f"**새로 추가된 정확 키워드:** {', '.join(new_additional)}")
-            if deleted_default or deleted_additional:
-                deleted_all = deleted_default | deleted_additional
-                st.write(f"**삭제된 키워드:** {', '.join(deleted_all)}")
-    
-    return cached_groups
-
-def reset_keyword_cache():
-    """키워드 캐시 초기화 함수"""
-    if 'keyword_groups_cache' in st.session_state:
-        del st.session_state.keyword_groups_cache
-    if 'prev_default_keywords' in st.session_state:
-        del st.session_state.prev_default_keywords
-    if 'prev_additional_keywords' in st.session_state:
-        del st.session_state.prev_additional_keywords
-    st.success("🔄 키워드 캐시가 초기화되었습니다!")
-
+    return keyword_groups
 
 def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_method='mean', time_agg_method='정확한 시간'):
     """키워드 그룹별로 집계된 데이터프레임 생성"""
     combined_data = []
-    aggregation_summary = []  # 집계 요약 정보를 저장할 리스트
+    aggregation_summary = []
     
     for df_info in dataframes:
         df = df_info['dataframe'].copy()
         df['source_file'] = df_info['filename']
         
-        # X축 컬럼이 있는지 확인 (공백 제거 후)
+        # X축 컬럼이 있는지 확인
         x_col_clean = str(x_col).strip()
         if x_col_clean not in df.columns:
             continue
         
-        # 시간 컬럼 처리를 먼저 수행
+        # 시간 컬럼 처리
         col_clean = str(x_col).strip().lower()
         if any(keyword in col_clean for keyword in ['time', 'date', 'timestamp']):
             try:
@@ -231,7 +197,7 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
             
         df_subset = df[['time_group', 'source_file']].copy()
         
-        # 각 키워드 그룹별로 평균 계산
+        # 각 키워드 그룹별로 집계 계산
         for keyword, cols in keyword_groups.items():
             # 컬럼명 정리 후 사용 가능한 컬럼 찾기
             available_cols = []
@@ -249,7 +215,6 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
                     elif agg_method == 'median':
                         df_subset[f'{keyword}_중앙값'] = df[available_cols].median(axis=1)
                     
-                    # 집계 요약 정보를 리스트에 저장 (개별 출력 대신)
                     aggregation_summary.append({
                         'keyword': keyword,
                         'status': 'success',
@@ -266,8 +231,8 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
         
         combined_data.append(df_subset)
     
-    # 집계 요약을 하나의 expander로 표시
-    if aggregation_summary:
+    # 집계 요약을 하나의 expander로 표시 (조건부)
+    if aggregation_summary and not st.session_state.get('summary_shown', False):
         with st.expander(f"📊 키워드 그룹 집계 결과 ({len(aggregation_summary)}개 그룹)"):
             for summary in aggregation_summary:
                 if summary['status'] == 'success':
@@ -276,6 +241,7 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
                 else:
                     st.write(f"⚠️ **'{summary['keyword']}' 그룹**: 집계 중 오류 - {summary['error']}")
                 st.write("---")
+        st.session_state.summary_shown = True
     
     if not combined_data:
         return None
@@ -303,19 +269,9 @@ def create_keyword_aggregated_dataframe(dataframes, x_col, keyword_groups, agg_m
         # 원래 컬럼명으로 변경
         agg_df = agg_df.rename(columns={'time_group': x_col_clean})
         
-        # 집계 결과 요약 표시
-        st.info(f"📊 집계 완료: {len(agg_df)}개의 시간 구간, {len(value_cols)}개의 키워드 그룹")
-        
-        # 시간 범위 표시
-        if len(agg_df) > 0:
-            time_range_start = agg_df[x_col_clean].min()
-            time_range_end = agg_df[x_col_clean].max()
-            st.write(f"⏰ 분석 기간: {time_range_start} ~ {time_range_end}")
-        
         return agg_df
     except Exception as e:
         st.error(f"데이터 집계 중 오류 발생: {e}")
-        st.write(f"디버그 정보: 사용 가능한 컬럼 = {value_cols}")
         return None
 
 def create_aggregated_dataframe(dataframes, group_cols, value_cols, agg_method='mean'):
@@ -344,7 +300,7 @@ def create_aggregated_dataframe(dataframes, group_cols, value_cols, agg_method='
     for col in group_cols:
         if col in combined_df.columns:
             col_lower = col.lower().strip()
-            if any(keyword in col_lower for keyword in ['timestamp', 'time', 'date', ]):
+            if any(keyword in col_lower for keyword in ['timestamp', 'time', 'date']):
                 try:
                     combined_df[col] = pd.to_datetime(combined_df[col])
                 except:
@@ -365,29 +321,25 @@ def create_aggregated_dataframe(dataframes, group_cols, value_cols, agg_method='
 def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
     """패턴 분석을 위한 차트 생성"""
     if chart_type == "Multi-Line with Correlation":
-        # 서브플롯 생성 (상관관계 히트맵 포함)
+        # 서브플롯 생성
         fig = make_subplots(
-            rows=3, cols=2,
-            subplot_titles=('시계열 패턴', '상관관계 히트맵', '분포 분석', '정규화 비교'),
+            rows=2, cols=2,
+            subplot_titles=('그룹별 시계열 패턴', '그룹간 상관관계 히트맵', '정규화 비교'),
             specs=[[{"colspan": 2}, None],
-                    [{"type": "xy"}, {"type": "xy"}],
-                    [{"colspan": 2}, None]
-                    ]
+                    [{"type": "xy"}, {"type": "xy"}]]
         )
         
-        # 1. 시계열 패턴
+        # 1. 그룹별 시계열 패턴
         for y_col in y_cols:
-            if y_col in df.columns:
-                fig.add_trace(
-                    go.Scatter(x=df[x_col], y=df[y_col], name=y_col, mode='lines+markers'),
-                    row=1, col=1
-                )
+            fig.add_trace(
+                go.Scatter(x=df[x_col], y=df[y_col], 
+                            name=y_col, mode='lines+markers'),
+                row=1, col=1
+            )
         
-        # 2. 상관관계 분석 (숫자형 컬럼만)
-        numeric_cols = [col for col in y_cols if col in df.columns and pd.api.types.is_numeric_dtype(df[col])]
-        if len(numeric_cols) > 1:
-            corr_matrix = df[numeric_cols].corr()
-            
+        # 2. 그룹별 상관관계 히트맵
+        if len(y_cols) > 1:
+            corr_matrix = df[y_cols].corr()
             fig.add_trace(
                 go.Heatmap(
                     z=corr_matrix.values,
@@ -395,11 +347,12 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
                     y=corr_matrix.columns,
                     colorscale='RdBu',
                     zmid=0,
+                    showscale=True,
                     colorbar=dict(
-                        x=0.47,  # 왼쪽으로 이동 (0~1 범위)
-                        y=0.50,  # 아래쪽으로 이동 (0~1 범위)
-                        len=0.25,  # 컬러바 길이 조정
-                        thickness=15,  # 컬러바 두께 조정
+                        x=0.47,
+                        y=0.22,
+                        len=0.35,
+                        thickness=15,
                         title=dict(
                             text="상관계수",
                             side="right"
@@ -409,25 +362,18 @@ def create_pattern_analysis_chart(df, x_col, y_cols, chart_type="Line"):
                 row=2, col=1
             )
         
-        # 3. 분포 분석 (박스플롯)
-        for i, y_col in enumerate(numeric_cols[:3]):  # 최대 3개만
-            fig.add_trace(
-                go.Box(y=df[y_col], name=y_col),
-                row=2, col=2
-            )
-            
-        # 4.정규화 분석
+        # 3. 정규화 비교
         for y_col in y_cols:
-            if pd.api.types.is_numeric_dtype(aggregated_df[y_col]):
-                col_data = aggregated_df[y_col]
+            if pd.api.types.is_numeric_dtype(df[y_col]):
+                col_data = df[y_col]
                 normalized = (col_data - col_data.min()) / (col_data.max() - col_data.min())
                 fig.add_trace(
-                    go.Scatter(x=aggregated_df[x_col], y=normalized, 
+                    go.Scatter(x=df[x_col], y=normalized, 
                                 name=f"{y_col} (정규화)", mode='lines'),
-                    row=3, col=1
-                )    
+                    row=2, col=2
+                )
         
-        fig.update_layout(height=1000, title_text="종합 패턴 분석", margin=dict(r=120))
+        fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석", margin=dict(r=120))
         return fig
     
     elif chart_type == "Normalized Comparison":
@@ -483,7 +429,7 @@ with st.sidebar:
         folder_path = st.text_input("폴더 경로 입력", value="./sample")
         
     # 분석 모드 선택
-    analysis_mode = st.radio("분석 모드", ["키워드 그룹 분석", "수동 선택"]) # "자동 패턴 분석" 일단 제거함
+    analysis_mode = st.radio("분석 모드", ["키워드 그룹 분석", "수동 선택"])
         
     if analysis_mode == "키워드 그룹 분석":
         st.subheader("🔍 키워드 설정")
@@ -499,7 +445,7 @@ with st.sidebar:
         # 추가 키워드
         additional_keywords = st.text_area(
             "정확 일치 키워드 (한 줄에 하나씩)",
-            placeholder="예:\speed\mileage\soh",
+            placeholder="예:\nspeed\nmileage\nsoh",
             help="입력한 단어와 정확히 일치하는 컬럼만 찾습니다. 예: 'soc' → soc 컬럼만"
         )
         if additional_keywords:
@@ -540,8 +486,8 @@ else:
             raise ValueError("파일 없음")
 
         # 컬럼명 정리
-        df.columns = df.columns.str.strip()  # 앞뒤 공백 제거
-        df.columns = [col if col else f'unnamed_{i}' for i, col in enumerate(df.columns)]  # 빈 컬럼 처리
+        df.columns = df.columns.str.strip()
+        df.columns = [col if col else f'unnamed_{i}' for i, col in enumerate(df.columns)]
 
         # 중복 컬럼명 처리
         seen = {}
@@ -565,7 +511,6 @@ else:
 
     except Exception as e:
         st.warning("⚠️ CSV를 업로드하거나 샘플 데이터를 선택하세요.")
-        
 
 if csv_files:
     st.success(f"✅ {len(csv_files)}개의 CSV 파일을 발견했습니다.")
@@ -588,14 +533,14 @@ if csv_files:
     
     with col2:
         st.write("**숫자형 컬럼**")
-        for col in column_analysis['numeric_cols'][:10]:  # 최대 10개만 표시
+        for col in column_analysis['numeric_cols'][:10]:
             st.write(f"- {col}")
         if len(column_analysis['numeric_cols']) > 10:
             st.write(f"... 외 {len(column_analysis['numeric_cols']) - 10}개")
     
     with col3:
         st.write("**범주형 컬럼**")
-        for col in column_analysis['categorical_cols'][:10]:  # 최대 10개만 표시
+        for col in column_analysis['categorical_cols'][:10]:
             st.write(f"- {col}")
         if len(column_analysis['categorical_cols']) > 10:
             st.write(f"... 외 {len(column_analysis['categorical_cols']) - 10}개")
@@ -628,13 +573,13 @@ if csv_files:
             st.divider()
             
             st.subheader("📊 키워드별 컬럼 그룹")
-            # 키워드별 컬럼 그룹화
-            keyword_groups = get_incremental_keyword_groups(
+            
+            # 키워드별 컬럼 그룹화 - 캐싱된 버전 사용
+            keyword_groups = get_keyword_groups(
                 column_analysis['numeric_cols'], 
                 default_keywords_list, 
                 additional_keywords_list
             )
-            
             
             if keyword_groups:
                 # 각 키워드 그룹 표시
@@ -642,19 +587,38 @@ if csv_files:
                     with st.expander(f"🔘 '{keyword}' 관련 컬럼들 ({len(cols)}개)"):
                         for col in cols:
                             st.write(f"- {col}")
-                        
-                # if st.button("키워드 그룹 초기화"):
-                #     reset_keyword_cache()
                     
-                # 분석 실행 버튼
-                if st.button("🚀 키워드 그룹 분석 실행", type="primary"):
-                    with st.spinner("키워드 그룹별 데이터를 분석하고 있습니다..."):
-                        aggregated_df = create_keyword_aggregated_dataframe(
-                            csv_files, x_col, keyword_groups, agg_method, time_agg_method
-                        )
+                # 분석 실행 버튼 - 조건부 실행
+                current_params = {
+                    'x_col': x_col,
+                    'keyword_groups': keyword_groups,
+                    'agg_method': agg_method,
+                    'time_agg_method': time_agg_method,
+                    'chart_type': chart_type
+                }
+                
+                # 파라미터가 변경되었는지 확인
+                params_changed = st.session_state.last_analysis_params != current_params
+                
+                if st.button("🚀 키워드 그룹 분석 실행", type="primary") or (st.session_state.draw_chart and not params_changed):
+                    if params_changed or not st.session_state.draw_chart:
+                        # 새로운 분석 실행
+                        with st.spinner("키워드 그룹별 데이터를 분석하고 있습니다..."):
+                            st.session_state.aggregated_df = create_keyword_aggregated_dataframe(
+                                csv_files, x_col, keyword_groups, agg_method, time_agg_method
+                            )
+                            st.session_state.x_col = x_col
+                            st.session_state.chart_type = chart_type
+                            st.session_state.draw_chart = True
+                            st.session_state.last_analysis_params = current_params
+                            st.session_state.summary_shown = False  # 요약 재표시를 위해 리셋
                     
-                    if aggregated_df is not None and len(aggregated_df) > 0:
-                        st.subheader("📈 키워드 그룹별 패턴 분석")
+                    # 결과 표시 (캐시된 데이터 사용)
+                    if st.session_state.aggregated_df is not None:
+                        aggregated_df = st.session_state.aggregated_df
+                        x_col = st.session_state.x_col
+                        chart_type = st.session_state.chart_type
+                        y_cols = [col for col in aggregated_df.columns if col != x_col]
                         
                         # 요약 통계
                         col1, col2, col3 = st.columns(3)
@@ -665,66 +629,11 @@ if csv_files:
                         with col3:
                             group_cols = [col for col in aggregated_df.columns if col != x_col]
                             st.metric("생성된 지표", len(group_cols))
-                        
+                            
                         # 키워드 그룹별 차트
-                        y_cols = [col for col in aggregated_df.columns if col != x_col]
-                        
                         if chart_type == "Multi-Line with Correlation":
-                            # 서브플롯 생성
-                            fig = make_subplots(
-                                rows=2, cols=2,
-                                subplot_titles=('그룹별 시계열 패턴', '그룹간 상관관계 히트맵', '정규화 비교'),
-                                specs=[[{"colspan": 2}, None],
-                                        [{"type": "xy"}, {"type": "xy"}]]
-                            )
-                            
-                            # 1. 그룹별 시계열 패턴
-                            for y_col in y_cols:
-                                fig.add_trace(
-                                    go.Scatter(x=aggregated_df[x_col], y=aggregated_df[y_col], 
-                                                name=y_col, mode='lines+markers'),
-                                    row=1, col=1
-                                )
-                            
-                            # 2. 그룹별 상관관계 히트맵
-                            if len(y_cols) > 1:
-                                corr_matrix = aggregated_df[y_cols].corr()
-                                fig.add_trace(
-                                    go.Heatmap(
-                                        z=corr_matrix.values,
-                                        x=corr_matrix.columns,
-                                        y=corr_matrix.columns,
-                                        colorscale='RdBu',
-                                        zmid=0,
-                                        showscale=True,
-                                        colorbar=dict(
-                                            x=0.47,  # 왼쪽으로 이동 (0~1 범위)
-                                            y=0.22,  # 아래쪽으로 이동 (0~1 범위)
-                                            len=0.35,  # 컬러바 길이 조정
-                                            thickness=15,  # 컬러바 두께 조정
-                                            title=dict(
-                                                text="상관계수",
-                                                side="right"
-                                            )
-                                        )
-                                    ),
-                                    row=2, col=1
-                                )
-                            
-                            # 3. 정규화 비교
-                            for y_col in y_cols:
-                                if pd.api.types.is_numeric_dtype(aggregated_df[y_col]):
-                                    col_data = aggregated_df[y_col]
-                                    normalized = (col_data - col_data.min()) / (col_data.max() - col_data.min())
-                                    fig.add_trace(
-                                        go.Scatter(x=aggregated_df[x_col], y=normalized, 
-                                                    name=f"{y_col} (정규화)", mode='lines'),
-                                        row=2, col=2
-                                    )
-                            
-                            fig.update_layout(height=800, title_text="키워드 그룹별 종합 분석", margin=dict(r=120) )
+                            fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
                             st.plotly_chart(fig, use_container_width=True)
-                        
                         else:
                             # 기본 차트
                             fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
@@ -755,55 +664,11 @@ if csv_files:
                                 file_name=f"keyword_group_analysis_{agg_method}.csv",
                                 mime="text/csv"
                             )
-                    else:
-                        st.warning("⚠️ 분석할 수 있는 데이터가 없습니다. 키워드나 파일을 확인해주세요.")
             else:
                 st.warning("⚠️ 지정된 키워드와 일치하는 컬럼을 찾을 수 없습니다.")
         else:
             st.info("💡 분석할 키워드를 입력하고 시간축 컬럼을 선택해주세요.")
             
-            
-    
-    elif analysis_mode == "자동 패턴 분석":
-        # 기존 자동 분석 로직
-        if column_analysis['timestamp_cols'] and column_analysis['numeric_cols']:
-            
-            default_index = column_analysis['timestamp_cols'].index('timestamp') if 'timestamp' in column_analysis['timestamp_cols'] else 0
-            
-            x_col = column_analysis['timestamp_cols'][default_index]
-            y_cols = column_analysis['numeric_cols'][:5]
-            
-            st.success(f"🤖 자동 선택: X축={x_col}, Y축={', '.join(y_cols)}")
-            
-            with st.spinner("데이터를 집계하고 있습니다..."):
-                aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
-            
-            if aggregated_df is not None:
-                st.subheader("📈 패턴 분석 결과")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("총 데이터 포인트", len(aggregated_df))
-                with col2:
-                    st.metric("분석 기간", f"{len(aggregated_df)}개 구간")
-                with col3:
-                    st.metric("분석 지표", len(y_cols))
-                
-                fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                if show_table:
-                    st.subheader("집계된 데이터")
-                    st.dataframe(aggregated_df, use_container_width=True)
-                    
-                    csv = aggregated_df.to_csv(index=False)
-                    st.download_button(
-                        label="집계된 데이터 다운로드 (CSV)",
-                        data=csv,
-                        file_name=f"aggregated_data_{agg_method}.csv",
-                        mime="text/csv"
-                    )
-        
     else:  # 수동 선택 모드
         st.subheader("수동 컬럼 선택")
         
@@ -813,17 +678,47 @@ if csv_files:
         x_col = st.selectbox("X축 컬럼", available_cols, index=default_index)
         y_cols = st.multiselect("Y축 컬럼(복수 선택 가능)", available_cols)
         
-        if x_col and y_cols and st.button("패턴 분석 실행"):
-            with st.spinner("데이터를 분석하고 있습니다..."):
-                aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
+        # 수동 선택 모드의 분석 실행
+        manual_params = {
+            'mode': 'manual',
+            'x_col': x_col,
+            'y_cols': y_cols,
+            'agg_method': agg_method,
+            'chart_type': chart_type
+        }
+        
+        manual_params_changed = st.session_state.get('last_manual_params') != manual_params
+        
+        if x_col and y_cols and (st.button("패턴 분석 실행") or (st.session_state.get('draw_manual_chart') and not manual_params_changed)):
+            if manual_params_changed or not st.session_state.get('draw_manual_chart'):
+                with st.spinner("데이터를 분석하고 있습니다..."):
+                    aggregated_df = create_aggregated_dataframe(csv_files, [x_col], y_cols, agg_method)
+                    st.session_state.manual_aggregated_df = aggregated_df
+                    st.session_state.manual_x_col = x_col
+                    st.session_state.manual_y_cols = y_cols
+                    st.session_state.manual_chart_type = chart_type
+                    st.session_state.draw_manual_chart = True
+                    st.session_state.last_manual_params = manual_params
             
-            if aggregated_df is not None:
+            # 결과 표시
+            if st.session_state.get('manual_aggregated_df') is not None:
+                aggregated_df = st.session_state.manual_aggregated_df
+                x_col = st.session_state.manual_x_col
+                y_cols = st.session_state.manual_y_cols
+                chart_type = st.session_state.manual_chart_type
+                
                 fig = create_pattern_analysis_chart(aggregated_df, x_col, y_cols, chart_type)
                 st.plotly_chart(fig, use_container_width=True)
                 
                 if show_table:
                     st.dataframe(aggregated_df, use_container_width=True)
+
 else:
     if data_source == "폴더 분석":
         st.warning("⚠️ 지정된 폴더에서 CSV 파일을 찾을 수 없습니다.")
 
+# 페이지 하단에 리셋 버튼 추가 (디버깅용)
+if st.button("🔄 전체 세션 초기화", help="모든 캐시와 세션 상태를 초기화합니다"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
